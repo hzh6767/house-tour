@@ -1,0 +1,24 @@
+{
+  "name": "house-tour",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "3D 看房 — browser-based first-person house walkthrough with model import",
+  "scripts": {
+    "start": "node serve.js",
+    "vendor": "node scripts/vendor.js",
+    "postinstall": "node scripts/vendor.js",
+    "test": "node scripts/make-test-assets.mjs && node scripts/e2e.mjs"
+  },
+  "dependencies": {
+    "three": "^0.180.0",
+    "three-mesh-bvh": "^0.9.15"
+  },
+  "keywords": ["3d", "walkthrough", "real-estate", "virtual-tour", "three.js", "webgl"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hzh20070706-gif/house-tour.git"
+  },
+  "author": "",
+  "license": "MIT"
+}

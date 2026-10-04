@@ -1,0 +1,64 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# testing
+coverage/
+
+# production build artifacts (vendor is intentionally committed)
+# vendor/
+
+# misc
+.DS_Store
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Models (user uploaded)
+models/*.glb
+models/*.gltf
+models/*.obj
+models/*.mtl
+models/*.fbx
+models/*.stl
+models/*.ply
+models/*.dae
+models/*.3mf
+models/*.zip
+models/*.bin
+models/*.png
+models/*.jpg
+models/*.jpeg
+models/*.webp
+models/*.ktx2
+models/*.hdr
+models/*.exr
+
+# Keep test assets
+!models/test-room.glb
+!models/test-room.zip
+
+# Temporary files
+*.tmp
+.cache/

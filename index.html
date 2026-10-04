@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b0d10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>3D 看房</title>
+<link rel="stylesheet" href="./styles.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/build/three.module.js",
+    "three/addons/": "./vendor/three/examples/jsm/",
+    "three-mesh-bvh": "./vendor/three-mesh-bvh/index.module.js"
+  }
+}
+</script>
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="view"></canvas>
+
+  <!-- 准星 -->
+  <div id="crosshair" hidden><span></span><span></span></div>
+
+  <!-- 顶部工具条 -->
+  <div id="toolbar" hidden>
+    <div class="tb-left">
+      <button class="tb" data-act="menu" title="设置"><i>⚙</i><span>设置</span></button>
+      <button class="tb" data-act="help" title="操作说明"><i>?</i><span>帮助</span></button>
+    </div>
+    <div class="tb-mid">
+      <span id="place-name" class="place">未命名空间</span>
+    </div>
+    <div class="tb-right">
+      <button class="tb" data-act="reset" title="回到起点"><i>↺</i><span>复位</span></button>
+      <button class="tb" data-act="shot" title="截图"><i>▣</i><span>截图</span></button>
+      <button class="tb" data-act="full" title="全屏"><i>⛶</i><span>全屏</span></button>
+    </div>
+  </div>
+
+  <!-- 小地图 -->
+  <div id="minimap-wrap" hidden>
+    <canvas id="minimap"></canvas>
+    <button id="mm-mode" title="切换小地图方向">俯视</button>
+  </div>
+
+  <!-- 移动端摇杆与按钮 -->
+  <div id="joystick" hidden><div id="joy-base"><div id="joy-nub"></div></div></div>
+  <div id="touch-actions" hidden>
+    <button class="ta" data-act="run">跑</button>
+    <button class="ta" data-act="up">↑</button>
+    <button class="ta" data-act="down">↓</button>
+  </div>
+
+  <!-- 底部提示 -->
+  <div id="hintbar" hidden></div>
+
+  <!-- 加载进度 -->
+  <div id="loading" hidden>
+    <div class="ld-box">
+      <div class="ld-title">正在载入</div>
+      <div class="ld-file" id="ld-file"></div>
+      <div class="ld-track"><div class="ld-fill" id="ld-fill"></div></div>
+      <div class="ld-pct" id="ld-pct">0%</div>
+      <div class="ld-note" id="ld-note">大模型首次载入可能要十几秒；之后会走浏览器缓存</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 启动页 ============ -->
+<div id="start" class="sheet">
+  <div class="sheet-inner">
+    <header class="brand">
+      <h1>3D 看房</h1>
+      <p class="sub">导入户型模型，像玩游戏一样在房子里走动 — 手机电脑都能打开</p>
+    </header>
+
+    <div class="choices">
+      <button class="choice primary" data-go="model">
+        <div class="ci">📦</div>
+        <div class="ct">导入 3D 模型</div>
+        <div class="cd">支持 .glb / .gltf / .obj / .fbx / .stl / .ply / .dae / .3mf<br>打包成 .zip 也可以，贴图会自动找到</div>
+      </button>
+      <button class="choice" data-go="plan">
+        <div class="ci">📐</div>
+        <div class="ct">用户型图建房</div>
+        <div class="cd">只有一张平面图也能走<br>标好比例，描出墙体，自动生成可漫游的 3D 空间</div>
+      </button>
+      <button class="choice" data-go="sample">
+        <div class="ci">🏠</div>
+        <div class="ct">先看看示例</div>
+        <div class="cd">打开一套内置样板间<br>先感受效果，再决定用哪种方式</div>
+      </button>
+    </div>
+
+    <div class="dropzone" id="dropzone">
+      <span>把模型文件或整个文件夹拖到这里 · 或 <b>点击选择文件</b></span>
+      <input type="file" id="file-input" accept=".glb,.gltf,.obj,.fbx,.stl,.ply,.dae,.3mf,.zip,.mtl,.bin,.png,.jpg,.jpeg,.webp,.ktx2" multiple hidden>
+    </div>
+
+    <div class="recent" id="recent" hidden>
+      <div class="recent-h">服务器上已有的模型（点一下直接打开）</div>
+      <div class="recent-list" id="recent-list"></div>
+    </div>
+
+    <footer class="start-foot">
+      <span id="runtime-note">正在检测环境…</span>
+    </footer>
+  </div>
+</div>
+
+<!-- ============ 设置 ============ -->
+<div id="menu" class="sheet" hidden>
+  <div class="sheet-inner panel">
+    <header class="ph">
+      <h2>设置</h2>
+      <button class="x" data-act="close-menu">✕</button>
+    </header>
+    <div class="rows">
+      <label class="row">
+        <span>行走速度 <em id="v-speed">3.2</em> m/s</span>
+        <input type="range" id="s-speed" min="1" max="10" step="0.1" value="3.2">
+      </label>
+      <label class="row">
+        <span>视角范围 <em id="v-fov">72</em>°</span>
+        <input type="range" id="s-fov" min="50" max="110" step="1" value="72">
+      </label>
+      <label class="row">
+        <span>鼠标灵敏度 <em id="v-sens">1.0</em></span>
+        <input type="range" id="s-sens" min="0.2" max="3" step="0.05" value="1">
+      </label>
+      <label class="row">
+        <span>视点高度 <em id="v-eye">1.65</em> m</span>
+        <input type="range" id="s-eye" min="0.4" max="2.2" step="0.05" value="1.65">
+      </label>
+      <label class="row">
+        <span>画面精细度 <em id="v-q">自动</em></span>
+        <input type="range" id="s-q" min="0" max="3" step="1" value="0">
+      </label>
+      <div class="row toggle-row">
+        <label class="tg"><input type="checkbox" id="s-shadow" checked><span>阴影</span></label>
+        <label class="tg"><input type="checkbox" id="s-bob" checked><span>行走晃动</span></label>
+        <label class="tg"><input type="checkbox" id="s-map" checked><span>小地图</span></label>
+        <label class="tg"><input type="checkbox" id="s-ceiling"><span>显示天花板</span></label>
+      </div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn" data-act="share">复制分享链接</button>
+      <button class="btn" data-act="upload">上传到服务器</button>
+      <button class="btn ghost" data-act="back">换一个场景</button>
+    </div>
+    <div class="perf" id="perf"></div>
+  </div>
+</div>
+
+<!-- ============ 帮助 ============ -->
+<div id="help" class="sheet" hidden>
+  <div class="sheet-inner panel">
+    <header class="ph">
+      <h2>怎么走</h2>
+      <button class="x" data-act="close-help">✕</button>
+    </header>
+    <div class="keys">
+      <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>前 / 左 / 后 / 右</span></div>
+      <div><kbd>鼠标</kbd><span>转头 · 点一下画面锁定视角</span></div>
+      <div><kbd>Shift</kbd><span>快走</span><kbd>Esc</kbd><span>松开鼠标</span></div>
+      <div><kbd>空格</kbd><span>跳</span><kbd>Q</kbd><kbd>E</kbd><span>下降 / 上升</span></div>
+      <div><kbd>F</kbd><span>切换自由飞行（看整体布局时很有用）</span></div>
+      <div><kbd>R</kbd><span>回到起点</span><kbd>M</kbd><span>切换小地图</span></div>
+      <div><kbd>H</kbd><span>显示本帮助</span><kbd>Shift</kbd><span>+ 点小地图放大</span></div>
+      <div class="touch-only"><kbd>左半屏</kbd><span>摇杆走动</span><kbd>右半屏</kbd><span>拖动转头</span></div>
+    </div>
+    <div class="panel-note">
+      视点高度调到 1.6 米左右最接近真人眼睛的高度。想看整体布局，按 <b>F</b> 切到自由飞行，再用 <b>Q</b>/<b>E</b> 升降。
+    </div>
+  </div>
+</div>
+
+<!-- ============ 户型图编辑器 ============ -->
+<div id="plan-editor" class="sheet" hidden>
+  <div class="pe-wrap">
+
+    <aside class="pe-side">
+      <h2>户型图建房</h2>
+
+      <ol class="pe-steps">
+        <li><b>1</b><span>载入平面图（没有图也能画）</span></li>
+        <li><b>2</b><span>标定比例：点两处已知距离</span></li>
+        <li><b>3</b><span>沿墙描线，端点自动吸附</span></li>
+        <li><b>4</b><span>点「生成 3D 空间」进去看</span></li>
+      </ol>
+
+      <div class="pe-group">
+        <button class="btn wide" data-pe="pick-image">载入平面图…</button>
+        <input type="file" id="plan-file" accept="image/*" hidden>
+        <button class="btn wide ghost" data-pe="gen-demo">没有图？载入示例户型</button>
+      </div>
+
+      <div class="pe-group">
+        <div class="pe-lab">墙高 <em id="pe-hv">2.80</em> m</div>
+        <input type="range" id="pe-h" min="2" max="4" step="0.05" value="2.8">
+        <div class="pe-lab">墙厚 <em id="pe-tv">0.12</em> m</div>
+        <input type="range" id="pe-t" min="0.06" max="0.5" step="0.01" value="0.12">
+        <div class="pe-lab">默认门宽 <em id="pe-dv">0.90</em> m</div>
+        <input type="range" id="pe-d" min="0.6" max="2.4" step="0.05" value="0.9">
+      </div>
+
+      <div class="pe-group">
+        <div class="pe-lab2">当前工具</div>
+        <div class="pe-tools">
+          <button class="tool on" data-tool="wall">画墙 <kbd>1</kbd></button>
+          <button class="tool" data-tool="door">开门洞 <kbd>2</kbd></button>
+          <button class="tool" data-tool="erase">删墙 <kbd>3</kbd></button>
+          <button class="tool" data-tool="pan">平移视野 <kbd>4</kbd></button>
+        </div>
+        <label class="tg block"><input type="checkbox" id="pe-snap" checked><span>端点自动吸附</span></label>
+      </div>
+
+      <div class="pe-group">
+        <div class="pe-lab2">比例标定</div>
+        <button class="btn wide" data-tool="calibrate">① 在图上点两处已知距离</button>
+        <div class="pe-calib">
+          <span>两点实际距离</span>
+          <input type="number" id="pe-calb" value="3" min="0.1" max="100" step="0.1">
+          <span>米</span>
+        </div>
+        <button class="btn wide" data-pe="calib-apply">② 应用，算出比例尺</button>
+      </div>
+
+      <div class="pe-group">
+        <div class="pe-stat" id="pe-stat">墙段 0 · 门洞 0 · 总长 0.0 m</div>
+      </div>
+
+      <button class="btn go wide" data-pe="build">生成 3D 空间 →</button>
+
+      <div class="pe-group pe-foot">
+        <button class="btn" data-pe="undo">撤销</button>
+        <button class="btn" data-pe="fit">适配视图</button>
+        <button class="btn" data-pe="clear">清空</button>
+        <button class="btn ghost" data-pe="close">返回</button>
+      </div>
+    </aside>
+
+    <div class="pe-canvas">
+      <canvas id="plan-canvas"></canvas>
+      <div class="pe-hud" id="pe-hud"></div>
+      <button class="pe-toggle" data-pe="side-toggle" title="显示 / 隐藏侧栏">☰</button>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast" hidden></div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
