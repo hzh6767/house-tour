@@ -1,12 +1,12 @@
 # 3D 看房 · house-tour
 
-[![Deploy to GitHub Pages](https://github.com/hzh20070706-gif/house-tour/actions/workflows/deploy.yml/badge.svg)](https://github.com/hzh20070706-gif/house-tour/actions/workflows/deploy.yml)
+[![Deploy to GitHub Pages](https://github.com/hzh6767/house-tour/actions/workflows/deploy.yml/badge.svg)](https://github.com/hzh6767/house-tour/actions/workflows/deploy.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![three.js r180](https://img.shields.io/badge/three.js-r180-black)
 
 浏览器里的第一人称看房应用。导入户型模型或自己描户型图，就能像玩游戏一样在房子里走动，一条链接发给客户即可。
 
-**在线试玩：** <https://hzh20070706-gif.github.io/house-tour/> （纯静态版，可以导入模型、用户型图建房、看样板间；「上传到服务器」只在本地 `npm start` 时可用）
+**在线试玩：** <https://hzh6767.github.io/house-tour/> （纯静态版，可以导入模型、用户型图建房、看样板间；「上传到服务器」只在本地 `npm start` 时可用）
 
 - 纯前端，没有构建步骤，`npm start` 就能跑
 - 依赖全部离线内置（three.js 放在 `vendor/`），不依赖外网 CDN
