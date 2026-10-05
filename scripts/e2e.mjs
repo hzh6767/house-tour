@@ -244,7 +244,10 @@ async function main() {
     return { start: [start.x, start.z], afterFree: [afterFree.x, afterFree.z], afterWall: [afterWall.x, afterWall.y, afterWall.z], blockedSeen, grounded: p.grounded }
   })()`)
   const dz = walk.start[1] - walk.afterFree[1]
-  check('按 W 向北移动了 (≈2s × 3.2m/s，含加速)', dz > 3.5 && dz < 6.6, `Δz=${dz.toFixed(2)}`)
+  // 起点 z=6.4 朝北走，客厅/卧室之间的内墙在 z=3.6，玩家半径使其停在 z≈3.975，
+  // 因此 2 秒内的可行进距离上限约 2.43 米 —— 原来的 3.5..6.6 假设前方是空地，
+  // 在这张样板间地图里根本不可能达到。这里改为断言「撞到内墙前走完了这段距离」。
+  check('按 W 向北移动到内墙前 (2s，上限约 2.43m)', dz > 2.2 && dz < 2.6, `Δz=${dz.toFixed(2)}`)
   check('x 基本不变', Math.abs(walk.afterFree[0] - walk.start[0]) < 0.05)
   check('撞到内墙被挡住', walk.blockedSeen === true)
   check('没有穿过 z=3.6 的墙 (停在墙南侧)', walk.afterWall[2] > 3.6 + 0.05 && walk.afterWall[2] < 4.4, `z=${walk.afterWall[2].toFixed(3)}`)
@@ -294,17 +297,22 @@ async function main() {
   console.log('\n── 2. 导入 GLB（test-room.glb，毫米）')
   await evaluate(`window.__tour.loadUrl('models/test-room.glb')`, { awaitPromise: false })
   await waitFor(`window.__tour.ready && window.__tour.current && window.__tour.current.kind === 'model'`, 60000, 'GLB 就绪')
-  await sleep(1500) // 等后台烘小地图
+  // 等后台真正烘完小地图，而不是死等 1.5 秒。烘焙走 setTimeout(400) + requestIdleCallback，
+  // 慢机器上 1.5 秒可能不够，之前这一项就是这样偶发失败的。改为轮询真实完成信号：
+  // planFromGrid 返回 { wallGrid, bounds }，所以 plan.wallGrid 出现即为完成。
+  await waitFor(`window.__tour.minimap && window.__tour.minimap.plan && window.__tour.minimap.plan.wallGrid`, 30000, '导入模型的小地图烘焙')
   const g = await evaluate(`(() => {
     const t = window.__tour, c = t.current, p = t.player
-    const box = new (t.sceneRoot.children[0].constructor)()
-    const b = t.collision.bounds
+    // 量模型自己，不要量 t.collision.bounds —— 后者是「模型 + 半径 220 的外景地面」
+    // 的并集，x/z 会被那个 440 直径的圆盘撑满（这就是曾经量出 440×2.83×440 的原因）。
+    // loaded.bounds 由 loader 在居中落地后重算，min.y ≈ 0；loaded.size 是模型三轴尺寸。
+    const b = c.loaded.bounds
     return {
       name: document.getElementById('place-name').textContent,
       autoScale: c.loaded.autoScale,
-      size: [b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z],
+      size: [c.loaded.size.x, c.loaded.size.y, c.loaded.size.z],
       minY: b.min.y,
-      pos: [p.x = p.position.x, p.position.y, p.position.z],
+      pos: [p.position.x, p.position.y, p.position.z],
       grounded: p.grounded,
       meshes: t.collision.meshes.length,
       minimap: !document.getElementById('minimap-wrap').hidden,
@@ -323,7 +331,11 @@ async function main() {
   const g2 = await evaluate(`(() => {
     const t = window.__tour, p = t.player
     // 面朝 +X：相机朝向 (-sin yaw, -cos yaw) = (1, 0) → yaw = -PI/2
-    p.yaw = -Math.PI/2; p.position.set(0, p.position.y, 0); p.velocity.set(0,0,0)
+    // 起点不能取 (0,0)：那正是模型里那张 0.8×0.8 桌子的中心（make-test-assets.mjs
+    // 的 box(2600,0,1600,3400,750,2400) 居中后占 x∈[-0.4,0.4]），玩家半径 0.32，
+    // 会立刻停在 x = 0.4-0.32 = 0.08 —— 之前那次「走不出门洞」的假失败就是这个。
+    // 改从 x=1.0 出发，已越过桌子东面(0.4)+半径(0.32)，正对空门洞。
+    p.yaw = -Math.PI/2; p.position.set(1.0, p.position.y, 0); p.velocity.set(0,0,0)
     p.keys.add('KeyW')
     for (let i = 0; i < 300; i++) p.update(1/60)
     p.keys.delete('KeyW')

@@ -141,17 +141,28 @@ export class Environment {
    * 注意：这块地是要能站人的 —— 走出门口应该站在院子里，而不是掉下去再被送回起点。
    */
   buildGround(radius = 200, y = 0) {
+    // 半径变化时必须重建几何体。以前这里只要 this.ground 存在就直接返回缓存的
+    // mesh 并只改 y，于是 init 时的 buildGround(220) 把半径永久钉死为 220，之后
+    // moveGroundTo(center, 180, ...) 请求的半径被静默丢弃：外景地面永远停在半径
+    // 220（直径 440），「按模型尺寸自适应地面」这条逻辑实际从未生效。
     if (this.ground) {
-      this.ground.position.y = y
-      return this.ground
+      const currentRadius = this.ground.userData.radius
+      if (Math.abs(currentRadius - radius) < 1e-6) {
+        this.ground.position.y = y
+        return this.ground
+      }
+      this.scene.remove(this.ground)
+      this.ground.geometry.dispose()
+      this.ground = null
     }
     const geo = new THREE.CircleGeometry(radius, 48)
     geo.rotateX(-Math.PI / 2)
-    const mat = new THREE.MeshStandardMaterial({ color: 0x8f9285, roughness: 1, metalness: 0 })
+    const mat = this.groundMat || new THREE.MeshStandardMaterial({ color: 0x8f9285, roughness: 1, metalness: 0 })
     const mesh = new THREE.Mesh(geo, mat)
     mesh.position.y = y
     mesh.receiveShadow = true
     mesh.name = 'outdoor-ground'
+    mesh.userData.radius = radius
     this.ground = mesh
     this.groundMat = mat
     this.scene.add(mesh)
