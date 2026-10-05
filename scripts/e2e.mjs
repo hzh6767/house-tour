@@ -2,6 +2,7 @@
 // 用法:  node scripts/e2e.mjs            （需要 npm start 已在 5173 端口运行）
 //        node scripts/e2e.mjs --keep     （结束后不关 Chrome，方便看）
 import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
 import http from 'node:http'
 
@@ -36,6 +37,44 @@ const getJSON = (url) =>
   })
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// 本脚本需要 5173 端口已在提供服务。以前它只假设 `npm start` 已经跑起来了，
+// 于是干净检出下 `npm test` 必然卡在「样板间就绪」超时。这里改成：没有现成的
+// 服务器就自己起一个（复用 serve.js），退出时再收掉，保证 npm test 自给自足。
+let ownedServer = null
+
+function serverAlive() {
+  return new Promise((res) => {
+    const u = new URL(BASE)
+    const req = http.get(
+      { host: u.hostname, port: u.port || 80, path: '/', timeout: 2000 },
+      (r) => { r.resume(); res(true) }
+    )
+    req.on('error', () => res(false))
+    req.on('timeout', () => { req.destroy(); res(false) })
+  })
+}
+
+async function ensureServer() {
+  if (await serverAlive()) return
+  const servePath = fileURLToPath(new URL('../serve.js', import.meta.url))
+  ownedServer = spawn(process.execPath, [servePath], {
+    cwd: fileURLToPath(new URL('..', import.meta.url)),
+    stdio: ['ignore', 'ignore', 'ignore'],
+    env: { ...process.env, PORT: String(new URL(BASE).port || 5173) },
+  })
+  for (let i = 0; i < 80; i++) {
+    if (await serverAlive()) return
+    await sleep(250)
+  }
+  throw new Error(`dev server 未能在 ${BASE} 提供服务`)
+}
+
+function stopServer() {
+  if (!ownedServer) return
+  try { ownedServer.kill() } catch {}
+  ownedServer = null
+}
 
 let fails = 0
 let passes = 0
@@ -108,6 +147,8 @@ async function waitFor(expr, timeoutMs = 60000, label = expr) {
 }
 
 async function main() {
+  // 先确保服务器在跑，否则后续 Page.navigate 拿不到页面
+  await ensureServer()
   // 等调试端口起来
   let version
   for (let i = 0; i < 60; i++) {
@@ -421,6 +462,7 @@ main()
     try {
       fs.rmSync('models/e2e-upload.glb', { force: true })
     } catch {}
+    stopServer()
     if (!KEEP) chrome.kill()
     process.exit(fails ? 1 : 0)
   })
