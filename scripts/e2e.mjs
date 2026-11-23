@@ -450,6 +450,22 @@ async function main() {
   check('正常上传成功', up.ok === 200 && up.url === 'models/e2e-upload.glb', `status=${up.ok} url=${up.url}`)
   const range = await evaluate(`fetch('models/test-room.glb', { headers: { Range: 'bytes=0-99' } }).then(r => ({ status: r.status, len: r.headers.get('content-length'), cr: r.headers.get('content-range') }))`)
   check('Range 请求返回 206', range.status === 206 && range.len === '100', JSON.stringify(range))
+  const modelBytes = fs.readFileSync(new URL('../models/test-room.glb', import.meta.url))
+  const size = modelBytes.length
+  for (const [request, start, end] of [
+    ['bytes=-100', size - 100, size - 1],
+    [`bytes=-${size + 1}`, 0, size - 1],
+    [`bytes=10-${size + 1}`, 10, size - 1],
+    ['bytes=10-', 10, size - 1],
+  ]) {
+    const response = await fetch(`${BASE}/models/test-room.glb`, { headers: { Range: request } })
+    const bytes = Buffer.from(await response.arrayBuffer())
+    check(request, response.status === 206 && response.headers.get('content-range') === `bytes ${start}-${end}/${size}` && bytes.equals(modelBytes.subarray(start, end + 1)))
+  }
+  for (const request of [`bytes=${size}-`, 'bytes=-0']) {
+    const response = await fetch(`${BASE}/models/test-room.glb`, { headers: { Range: request } })
+    check(request, response.status === 416 && response.headers.get('content-range') === `bytes */${size}` && (await response.arrayBuffer()).byteLength === 0)
+  }
 
   /* ───────────── 汇总 ───────────── */
   const realErrors = errors.filter((e) => !/ResizeObserver|GPU stall/.test(e))
@@ -474,7 +490,9 @@ main()
     try {
       fs.rmSync('models/e2e-upload.glb', { force: true })
     } catch {}
+    ws?.close()
     stopServer()
-    if (!KEEP) chrome.kill()
-    process.exit(fails ? 1 : 0)
+    if (KEEP) chrome.unref()
+    else chrome.kill()
+    process.exitCode = fails ? 1 : 0
   })
