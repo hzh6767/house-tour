@@ -369,18 +369,41 @@ async function main() {
   check('从 zip 里挑到了 glb 入口', z.entry === '户型/test-room.glb', z.entry)
   check('zip 内文件数正确', z.contained === 2)
   check('zip 路径同样完成单位归一', Math.abs(z.autoScale - 0.001) < 1e-9)
+  check('服务器 ZIP 可按原地址分享', await evaluate("window.__tour.current.loaded.url === 'models/test-room.zip'"))
 
   /* ───────────── 4. 本地文件路径（File 对象） ───────────── */
   console.log('\n── 4. 拖入本地文件（FileReader 路径）')
   await evaluate(`(async () => {
     const buf = await (await fetch('models/test-room.glb')).arrayBuffer()
     const f = new File([buf], '我的房子.glb')
-    window.__tour._lastFile = f
     window.__tour.loadFiles([f])
     return true
   })()`)
   await waitFor(`window.__tour.ready && document.getElementById('place-name').textContent === '我的房子'`, 60000, '本地文件就绪')
   check('本地文件载入并以文件名命名', true)
+  const uploads = await evaluate(`(async () => {
+    const tour = window.__tour
+    const fetchOriginal = window.fetch
+    let names = [], complete
+    window.fetch = (url, opts) => {
+      if (!String(url).startsWith('/_upload?')) return fetchOriginal(url, opts)
+      names.push(opts.body.name)
+      return new Promise(resolve => { complete = () => resolve(Response.json({ url: 'models/uploaded.glb', size: 1 })) })
+    }
+    try {
+      const pending = tour.uploadCurrent()
+      await tour.loadUrl('models/test-room.zip')
+      complete()
+      await pending
+      const nextSceneUrl = tour.current.loaded.url
+      const remoteUpload = tour.uploadCurrent()
+      if (names.length > 1) complete()
+      await remoteUpload
+      return { names, nextSceneUrl }
+    } finally { window.fetch = fetchOriginal }
+  })()`)
+  check('切换场景后，上传完成仍保留当前模型的分享地址', uploads.nextSceneUrl === 'models/test-room.zip')
+  check('服务器模型不会误上传上一次打开的本地文件', uploads.names.length === 1 && uploads.names[0] === '我的房子.glb')
 
   /* ───────────── 5. 户型图生成 ───────────── */
   console.log('\n── 5. 户型图 → 3D')
@@ -450,6 +473,22 @@ async function main() {
   check('正常上传成功', up.ok === 200 && up.url === 'models/e2e-upload.glb', `status=${up.ok} url=${up.url}`)
   const range = await evaluate(`fetch('models/test-room.glb', { headers: { Range: 'bytes=0-99' } }).then(r => ({ status: r.status, len: r.headers.get('content-length'), cr: r.headers.get('content-range') }))`)
   check('Range 请求返回 206', range.status === 206 && range.len === '100', JSON.stringify(range))
+  const modelBytes = fs.readFileSync(new URL('../models/test-room.glb', import.meta.url))
+  const size = modelBytes.length
+  for (const [request, start, end] of [
+    ['bytes=-100', size - 100, size - 1],
+    [`bytes=-${size + 1}`, 0, size - 1],
+    [`bytes=10-${size + 1}`, 10, size - 1],
+    ['bytes=10-', 10, size - 1],
+  ]) {
+    const response = await fetch(`${BASE}/models/test-room.glb`, { headers: { Range: request } })
+    const bytes = Buffer.from(await response.arrayBuffer())
+    check(request, response.status === 206 && response.headers.get('content-range') === `bytes ${start}-${end}/${size}` && bytes.equals(modelBytes.subarray(start, end + 1)))
+  }
+  for (const request of [`bytes=${size}-`, 'bytes=-0']) {
+    const response = await fetch(`${BASE}/models/test-room.glb`, { headers: { Range: request } })
+    check(request, response.status === 416 && response.headers.get('content-range') === `bytes */${size}` && (await response.arrayBuffer()).byteLength === 0)
+  }
 
   /* ───────────── 汇总 ───────────── */
   const realErrors = errors.filter((e) => !/ResizeObserver|GPU stall/.test(e))
@@ -474,7 +513,9 @@ main()
     try {
       fs.rmSync('models/e2e-upload.glb', { force: true })
     } catch {}
+    ws?.close()
     stopServer()
-    if (!KEEP) chrome.kill()
-    process.exit(fails ? 1 : 0)
+    if (KEEP) chrome.unref()
+    else chrome.kill()
+    process.exitCode = fails ? 1 : 0
   })

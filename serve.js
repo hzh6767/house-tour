@@ -164,16 +164,19 @@ const server = http.createServer(async (req, res) => {
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) return send(res, 404, `404  ${pathname}`)
     const type = MIME[path.extname(file).toLowerCase()] || 'application/octet-stream'
-    const headers = { 'Content-Type': type, 'Cache-Control': 'no-cache' }
+    const headers = { 'Content-Type': type, 'Cache-Control': 'no-cache', 'Accept-Ranges': 'bytes' }
     // 支持 Range，大模型断点/分段加载更稳
-    const range = req.headers.range
-    if (range && /^bytes=\d*-\d*$/.test(range)) {
-      const [s, e] = range.replace('bytes=', '').split('-')
-      const start = s ? Number(s) : 0
-      const end = e ? Number(e) : st.size - 1
-      if (start <= end && end < st.size) {
+    const range = /^bytes=(\d*)-(\d*)$/i.exec(req.headers.range || '')
+    if (range && (range[1] || range[2])) {
+      const [, first, last] = range
+      const start = first ? Number(first) : Math.max(0, st.size - Number(last))
+      const end = first && last ? Math.min(Number(last), st.size - 1) : st.size - 1
+      if (start >= st.size) {
+        res.writeHead(416, { ...headers, 'Content-Range': `bytes */${st.size}`, 'Content-Length': 0 })
+        return res.end()
+      }
+      if (start <= end) {
         headers['Content-Range'] = `bytes ${start}-${end}/${st.size}`
-        headers['Accept-Ranges'] = 'bytes'
         headers['Content-Length'] = end - start + 1
         res.writeHead(206, headers)
         if (req.method === 'HEAD') return res.end()
@@ -181,7 +184,6 @@ const server = http.createServer(async (req, res) => {
       }
     }
     headers['Content-Length'] = st.size
-    headers['Accept-Ranges'] = 'bytes'
     res.writeHead(200, headers)
     if (req.method === 'HEAD') return res.end()
     fs.createReadStream(file).pipe(res)
