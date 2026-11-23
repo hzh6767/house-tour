@@ -448,7 +448,6 @@ class App {
       return
     }
 
-    this._lastFile = main
     this.showLoading(`准备载入 ${main.name}`)
     const t0 = performance.now()
 
@@ -457,6 +456,7 @@ class App {
         onStage: (t) => this.setLoadingText(t, ''),
         onProgress: (p, label) => this.setLoadingProgress(p, label),
       })
+      loaded.localFile = main
 
       this._clearScene()
       this.setLoadingText('整理场景…', '')
@@ -919,7 +919,8 @@ class App {
   }
 
   async uploadCurrent() {
-    const f = this._lastFile
+    const loaded = this.current?.loaded
+    const f = loaded?.localFile
     if (!f) {
       toast('只有从本机拖入的模型才能上传。请重新拖一次文件，或直接放进 models 文件夹')
       return
@@ -935,12 +936,14 @@ class App {
       const text = await res.text()
       if (!res.ok) throw new Error(text || `HTTP ${res.status}`)
       const json = JSON.parse(text)
+      loaded.url = json.url
+      this.refreshRecent()
+      if (this.current?.loaded !== loaded) return
       this.setLoadingProgress(100, formatBytes(json.size))
       this.hideLoading()
       toast(`已上传，可以分享链接了：${json.url}`)
-      if (this.current?.loaded) this.current.loaded.url = json.url
-      this.refreshRecent()
     } catch (err) {
+      if (this.current?.loaded !== loaded) return
       this.hideLoading()
       toast('上传失败：' + (err?.message || err), 5000)
     }

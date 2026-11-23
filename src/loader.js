@@ -455,7 +455,9 @@ export async function loadModelUrl(url, ui = {}) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const blob = await res.blob()
     const f = new File([blob], name, { type: 'application/zip' })
-    return loadFromZip(f, ui)
+    const out = await loadFromZip(f, ui)
+    out.url = url
+    return out
   }
 
   if (!MODEL_EXT.includes(ext)) throw new Error('不支持该格式：' + ext)
